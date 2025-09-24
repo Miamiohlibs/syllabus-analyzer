@@ -83,12 +83,18 @@ def get_extraction_functions():
             
         return basic_extract_text, no_llm_extract, basic_heuristic, no_tables
 
-app = FastAPI(title="Syllabus Analyzer API", version="1.0.0")
+app = FastAPI(title="Syllabus Analyzer API", version="1.0.0",
+    root_path=os.getenv("BACKEND_BASE_PATH"),
+    openapi_url=os.getenv("BACKEND_BASE_PATH") + "/openapi.json",
+    docs_url=os.getenv("BACKEND_BASE_PATH") + "/docs",
+    redoc_url=os.getenv("BACKEND_BASE_PATH") + "/redoc"
+
+)
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3035",os.getenv("FRONTEND_DOMAIN")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,7 +158,7 @@ class CustomDownloader(UFLSyllabiDownloader):
 async def root():
     return {"message": "Syllabus Analyzer API is running"}
 
-@app.post("/api/discover-syllabi", response_model=Dict[str, str])
+@app.post(os.getenv("BACKEND_BASE_PATH") + "/api/discover-syllabi", response_model=Dict[str, str])
 async def discover_syllabi(url_input: URLInput, background_tasks: BackgroundTasks):
     """Step 1: Discover syllabus PDFs from provided URL"""
     job_id = str(uuid.uuid4())
@@ -250,7 +256,7 @@ async def discover_and_download_pdfs(url: str, job_id: str, download_folder: str
         jobs_status[job_id]["message"] = f"Error: {str(e)}"
         jobs_status[job_id]["progress"] = 0
 
-@app.get("/api/job-status/{job_id}", response_model=JobStatus)
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/job-status/{job_id}", response_model=JobStatus)
 async def get_job_status(job_id: str):
     """Get the current status of a job"""
     if job_id not in jobs_status:
@@ -258,12 +264,12 @@ async def get_job_status(job_id: str):
     
     return JobStatus(**jobs_status[job_id])
 
-@app.get("/api/jobs")
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/jobs")
 async def list_jobs():
     """List all jobs"""
     return {"jobs": list(jobs_status.values())}
 
-@app.get("/api/metadata-fields")
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/metadata-fields")
 async def get_available_metadata_fields():
     """Get list of available metadata fields for extraction"""
     return {
@@ -279,7 +285,7 @@ async def get_available_metadata_fields():
         ]
     }
 
-@app.post("/api/extract-metadata")
+@app.post(os.getenv("BACKEND_BASE_PATH") + "/api/extract-metadata")
 async def extract_metadata(selection: MetadataSelection, background_tasks: BackgroundTasks):
     """Step 3: Extract metadata from downloaded PDFs"""
     if selection.job_id not in jobs_status:
@@ -389,7 +395,7 @@ async def extract_metadata_background(job_id: str, selected_fields: List[str]):
         jobs_status[job_id]["status"] = "error"
         jobs_status[job_id]["message"] = f"Error: {str(e)}"
 
-@app.get("/api/results/{job_id}")
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/results/{job_id}")
 async def get_results(job_id: str):
     """Get extraction results for a job"""
     # Check for Primo results first, then regular results
@@ -407,7 +413,7 @@ async def get_results(job_id: str):
     else:
         raise HTTPException(status_code=404, detail="Results not found")
 
-@app.post("/api/check-primo/{job_id}")
+@app.post(os.getenv("BACKEND_BASE_PATH") + "/api/check-primo/{job_id}")
 async def check_primo_resources(job_id: str, background_tasks: BackgroundTasks):
     """Step 4: Check reading materials against Primo API"""
     if job_id not in jobs_status:
@@ -533,7 +539,7 @@ async def check_primo_background(job_id: str):
         jobs_status[job_id]["status"] = "error"
         jobs_status[job_id]["message"] = f"Library matching failed: {str(e)}"
 
-@app.get("/api/download-results/{job_id}")
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/download-results/{job_id}")
 async def download_results(job_id: str):
     """Download results as JSON file"""
     if job_id not in jobs_status:
@@ -550,7 +556,7 @@ async def download_results(job_id: str):
     else:
         raise HTTPException(status_code=404, detail="Results not found")
 
-@app.get("/api/download-csv/{job_id}")
+@app.get(os.getenv("BACKEND_BASE_PATH") + "/api/download-csv/{job_id}")
 async def download_csv(job_id: str):
     """Download results as CSV file"""
     if job_id not in jobs_status:

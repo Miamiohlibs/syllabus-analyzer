@@ -26,8 +26,13 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-# Set environment variable for API URL
-export NEXT_PUBLIC_API_URL="http://localhost:8000"
+#delete .next dir if it exists
+#if [ -d ".next" ]; then
+#    echo "❌ Removing old .next directory..."
+#    rm -rf .next
+#    npm run build
+#fi
+
 
 # Start the Next.js development server
 echo "🌟 Starting Next.js development server on http://localhost:3000"

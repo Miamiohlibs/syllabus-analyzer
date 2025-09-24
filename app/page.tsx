@@ -124,7 +124,7 @@ export default function SyllabusAnalyzer() {
     if (currentStep === "results" && currentJob && libraryMatches.length === 0 && selectedFields.includes("reading_materials")) {
       const interval = setInterval(() => {
         checkLibraryMatchingProgress(currentJob.job_id)
-      }, 3000) // Poll every 3 seconds for library matching
+      }, 3035) // Poll every 3 seconds for library matching
       return () => clearInterval(interval)
     }
   }, [currentStep, currentJob, libraryMatches.length, selectedFields])

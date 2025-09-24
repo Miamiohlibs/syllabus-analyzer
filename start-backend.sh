@@ -25,7 +25,7 @@ source venv/bin/activate
 
 # Install dependencies
 echo "📚 Installing Python dependencies..."
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # Check for .env file
 if [ ! -f ".env" ]; then
