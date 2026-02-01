@@ -24,6 +24,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent / "scripts"))
 
 from florida_pdf_downloader_v2 import UFLSyllabiDownloader
+from polisci_pdf_downloader import UFLPoliticalScienceDownloader
 
 # Import primo integration
 from primo_integration import check_metadata_availability
@@ -74,6 +75,7 @@ def get_extraction_functions():
                 "class_number": "Unknown",
                 "instructor": "Unknown",
                 "university": "Unknown",
+                "department": "Unknown",
                 "main_topic": "Unknown",
                 "reading_materials": []
             }
@@ -107,6 +109,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 class URLInput(BaseModel):
     url: HttpUrl
     job_name: Optional[str] = None
+    department: str = "arts"  # "arts" or "polisci"
 
 class MetadataSelection(BaseModel):
     job_id: str
@@ -132,10 +135,36 @@ class CustomDownloader(UFLSyllabiDownloader):
         # Ensure all required attributes are initialized
         if not hasattr(self, 'downloaded_files'):
             self.downloaded_files = set()
-    
+
     def set_progress_callback(self, callback):
         self.progress_callback = callback
+
+    def update_progress(self, message: str, progress: int, **kwargs):
+        if self.progress_callback:
+            self.progress_callback(message, progress, **kwargs)
+        
+        # Update global job status
+        if self.job_id in jobs_status:
+            jobs_status[self.job_id].update({
+                "message": message,
+                "progress": progress,
+                **kwargs
+            })
+
+class CustomPoliticalScienceDownloader(UFLPoliticalScienceDownloader):
+    """Extended Political Science downloader with progress tracking"""
     
+    def __init__(self, target_url: str, download_folder: str, job_id: str, max_downloads: int = 5):
+        super().__init__(target_url, download_folder, max_downloads)
+        self.job_id = job_id
+        self.progress_callback = None
+        # Ensure all required attributes are initialized
+        if not hasattr(self, 'downloaded_files'):
+            self.downloaded_files = set()
+
+    def set_progress_callback(self, callback):
+        self.progress_callback = callback
+
     def update_progress(self, message: str, progress: int, **kwargs):
         if self.progress_callback:
             self.progress_callback(message, progress, **kwargs)
@@ -166,6 +195,7 @@ async def discover_syllabi(url_input: URLInput, background_tasks: BackgroundTask
         "progress": 0,
         "message": "Starting PDF discovery...",
         "url": str(url_input.url),
+        "department": url_input.department,
         "job_name": url_input.job_name or f"Job_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         "created_at": datetime.now().isoformat(),
         "files_found": None,
@@ -173,11 +203,11 @@ async def discover_syllabi(url_input: URLInput, background_tasks: BackgroundTask
     }
     
     # Start background task
-    background_tasks.add_task(discover_and_download_pdfs, str(url_input.url), job_id, str(job_folder))
+    background_tasks.add_task(discover_and_download_pdfs, str(url_input.url), job_id, str(job_folder), url_input.department)
     
     return {"job_id": job_id, "status": "started"}
 
-async def discover_and_download_pdfs(url: str, job_id: str, download_folder: str):
+async def discover_and_download_pdfs(url: str, job_id: str, download_folder: str, department: str = "arts"):
     """Background task to discover and download PDFs"""
     try:
         # Update status
@@ -185,8 +215,18 @@ async def discover_and_download_pdfs(url: str, job_id: str, download_folder: str
         jobs_status[job_id]["message"] = "Discovering PDF files..."
         jobs_status[job_id]["progress"] = 10
         
-        # Create custom downloader
-        downloader = CustomDownloader(url, download_folder, job_id)
+        # Create custom downloader based on department
+        if department == "polisci":
+            # For Political Science, use the specific downloader with the hard-coded URL
+            downloader = CustomPoliticalScienceDownloader(
+                "https://polisci.ufl.edu/dept-resources/syllabi/fall-2025/",
+                download_folder, 
+                job_id, 
+                max_downloads=5
+            )
+        else:
+            # Default to Arts downloader
+            downloader = CustomDownloader(url, download_folder, job_id)
         
         def progress_callback(message: str, progress: int, **kwargs):
             jobs_status[job_id].update({
@@ -197,53 +237,86 @@ async def discover_and_download_pdfs(url: str, job_id: str, download_folder: str
         
         downloader.set_progress_callback(progress_callback)
         
-        # Get semester links
-        semester_links = downloader.get_semester_links()
-        if not semester_links:
-            semester_links = [url]
-        
-        # Collect all PDF links
-        all_pdf_links = []
-        progress_callback("Scanning for PDF files...", 20)
-        
-        for i, semester_url in enumerate(semester_links):
-            pdf_links = downloader.get_pdf_links_from_page(semester_url)
-            all_pdf_links.extend(pdf_links)
-            progress = 20 + (30 * (i + 1) / len(semester_links))
-            progress_callback(f"Scanned {i+1}/{len(semester_links)} pages", int(progress))
-        
-        # Remove duplicates
-        unique_pdfs = {}
-        for pdf in all_pdf_links:
-            unique_pdfs[pdf['url']] = pdf
-        all_pdf_links = list(unique_pdfs.values())
+        if department == "polisci":
+            # For Political Science, directly get PDFs from the specific page
+            all_pdf_links = downloader.get_pdf_links_from_page(downloader.target_url)
+            progress_callback(f"Found {len(all_pdf_links)} Political Science PDFs", 50)
+        else:
+            # Get semester links for Arts
+            semester_links = downloader.get_semester_links()
+            if not semester_links:
+                semester_links = [url]
+            
+            # Collect all PDF links
+            all_pdf_links = []
+            progress_callback("Scanning for PDF files...", 20)
+            
+            for i, semester_url in enumerate(semester_links):
+                pdf_links = downloader.get_pdf_links_from_page(semester_url)
+                all_pdf_links.extend(pdf_links)
+                progress = 20 + (30 * (i + 1) / len(semester_links))
+                progress_callback(f"Scanned {i+1}/{len(semester_links)} pages", int(progress))
+            
+            # Remove duplicates
+            unique_pdfs = {}
+            for pdf in all_pdf_links:
+                unique_pdfs[pdf['url']] = pdf
+            all_pdf_links = list(unique_pdfs.values())
         
         jobs_status[job_id]["files_found"] = len(all_pdf_links)
         progress_callback(f"Found {len(all_pdf_links)} PDF files", 50)
         
-        # TESTING MODIFICATION: Limit downloads to 5 files for local testing
-        # TO REVERT: Remove the [:5] slice below to download all files
-        limited_pdf_links = all_pdf_links[:5]
-        progress_callback(f"TESTING MODE: Limited to {len(limited_pdf_links)} files (out of {len(all_pdf_links)} found)", 50)
+        # Limit downloads based on department
+        if department == "polisci":
+            # Political Science already limited to 5 in the downloader
+            limited_pdf_links = all_pdf_links
+            progress_callback(f"Political Science: Ready to download {len(limited_pdf_links)} files", 50)
+        else:
+            # Arts: Limit to 5 for testing
+            limited_pdf_links = all_pdf_links[:5]
+            progress_callback(f"Arts: Ready to download {len(limited_pdf_links)} files (limited from {len(all_pdf_links)} found)", 50)
         
-        # Download PDFs
+        # Download PDFs with smooth progress tracking  
         successful_downloads = 0
+        import time
+        
         for i, pdf_info in enumerate(limited_pdf_links):
             try:
+                # Update progress during download with smooth increments
+                start_progress = 50 + (40 * i / len(limited_pdf_links))
+                end_progress = 50 + (40 * (i + 1) / len(limited_pdf_links))
+                
+                # Show multiple progress steps for each file to create smooth animation
+                for step in range(3):
+                    current_progress = start_progress + ((end_progress - start_progress) * step / 3)
+                    if step == 0:
+                        progress_callback(f"Starting download {i+1}/{len(limited_pdf_links)}: {pdf_info.get('title', 'Unknown')}", int(current_progress))
+                    elif step == 1:
+                        progress_callback(f"Downloading {i+1}/{len(limited_pdf_links)}: {pdf_info.get('title', 'Unknown')}", int(current_progress))
+                    time.sleep(0.8)  # Smooth progression
+                
                 success = downloader.download_pdf(pdf_info)
                 if success:
                     successful_downloads += 1
                 
-                progress = 50 + (40 * (i + 1) / len(limited_pdf_links))
-                progress_callback(f"Downloaded {successful_downloads}/{len(limited_pdf_links)} files", int(progress))
+                # Final progress update for this file
+                jobs_status[job_id]["files_downloaded"] = successful_downloads
+                progress_callback(f"Downloaded {successful_downloads}/{len(limited_pdf_links)} files", int(end_progress))
+                time.sleep(0.5)
                 
             except Exception as e:
                 print(f"Error downloading {pdf_info['url']}: {e}")
+                progress = 50 + (40 * (i + 1) / len(limited_pdf_links))
+                jobs_status[job_id]["files_downloaded"] = successful_downloads
+                progress_callback(f"Downloaded {successful_downloads}/{len(limited_pdf_links)} files", int(progress))
         
         jobs_status[job_id]["files_downloaded"] = successful_downloads
         jobs_status[job_id]["status"] = "completed"
         jobs_status[job_id]["progress"] = 100
-        jobs_status[job_id]["message"] = f"Download complete! {successful_downloads}/{len(limited_pdf_links)} files downloaded (TESTING MODE: limited from {len(all_pdf_links)} total)"
+        if department == "polisci":
+            jobs_status[job_id]["message"] = f"Political Science download complete! {successful_downloads}/{len(limited_pdf_links)} files downloaded"
+        else:
+            jobs_status[job_id]["message"] = f"Arts download complete! {successful_downloads}/{len(limited_pdf_links)} files downloaded"
         
     except Exception as e:
         jobs_status[job_id]["status"] = "error"
@@ -318,10 +391,11 @@ async def extract_metadata_background(job_id: str, selected_fields: List[str]):
         
         for i, pdf_path in enumerate(pdf_files):
             try:
-                # Update progress
-                progress = int((i / len(pdf_files)) * 80)
+                # Update progress - starting file
+                progress = int((i / len(pdf_files)) * 90)
                 jobs_status[job_id]["progress"] = progress
-                jobs_status[job_id]["message"] = f"Processing {pdf_path.name} ({i+1}/{len(pdf_files)})"
+                jobs_status[job_id]["message"] = f"Processing {pdf_path.name} ({i+1}/{len(pdf_files)}) - Extracting text..."
+                jobs_status[job_id]["files_processed"] = i
                 
                 # Extract text and tables (enhanced extraction)
                 text = extract_text_func(pdf_path)
@@ -339,6 +413,11 @@ async def extract_metadata_background(job_id: str, selected_fields: List[str]):
                     print(f"Table extraction failed for {pdf_path.name}: {e}")
                     # Continue with just text
                 
+                # Update progress - extracting metadata with AI
+                progress = int((i / len(pdf_files)) * 90 + 5)
+                jobs_status[job_id]["progress"] = progress
+                jobs_status[job_id]["message"] = f"Processing {pdf_path.name} ({i+1}/{len(pdf_files)}) - Extracting metadata with AI..."
+                
                 # Try AI extraction first, fall back to heuristic
                 try:
                     if llm_extract_func:
@@ -348,6 +427,7 @@ async def extract_metadata_background(job_id: str, selected_fields: List[str]):
                 except Exception as e:
                     print(f"o4-mini extraction failed for {pdf_path.name}: {e}")
                     # Use heuristic fallback
+                    jobs_status[job_id]["message"] = f"Processing {pdf_path.name} ({i+1}/{len(pdf_files)}) - Using fallback extraction..."
                     try:
                         metadata = heuristic_func(text)
                         print(f"Used heuristic fallback for {pdf_path.name}")
@@ -370,8 +450,19 @@ async def extract_metadata_background(job_id: str, selected_fields: List[str]):
                     "metadata": filtered_metadata
                 })
                 
+                # Update progress - file completed
+                completed_progress = int(((i + 1) / len(pdf_files)) * 90)
+                jobs_status[job_id]["progress"] = completed_progress
+                jobs_status[job_id]["message"] = f"Completed {pdf_path.name} ({i+1}/{len(pdf_files)}) - Moving to next file..."
+                jobs_status[job_id]["files_processed"] = i + 1
+                
             except Exception as e:
                 print(f"Error processing {pdf_path}: {e}")
+                # Update progress even if file failed
+                completed_progress = int(((i + 1) / len(pdf_files)) * 90)
+                jobs_status[job_id]["progress"] = completed_progress  
+                jobs_status[job_id]["message"] = f"Error processing {pdf_path.name} ({i+1}/{len(pdf_files)}) - Continuing..."
+                jobs_status[job_id]["files_processed"] = i + 1
                 continue
         
         # Save results
@@ -653,11 +744,14 @@ def generate_csv_from_results(results: List[Dict]) -> str:
                     author = item.get('creator') or item.get('author', '')
                     requirement = item.get('requirement', 'optional')
                     material_type = item.get('type', 'book')
+                    url = item.get('url', '')
                     
                     material_str = f"{title}"
                     if author:
                         material_str += f" by {author}"
                     material_str += f" ({material_type})"
+                    if url and url.lower() not in ['unknown', 'none', '']:
+                        material_str += f" [URL: {url}]"
                     
                     all_materials.append(material_str)
                     if requirement == 'required':

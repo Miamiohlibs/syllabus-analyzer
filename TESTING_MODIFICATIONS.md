@@ -1,6 +1,6 @@
 # Testing Modifications Documentation
 
-## Changes Made for Local Testing (Limited to 5 Files)
+## Changes Made for Local Testing (Limited to 20 Files)
 
 ### File: `/backend/app.py`
 
@@ -9,9 +9,9 @@
 **Changes Made**:
 1. **Line 176-179**: Added testing limitation logic
    ```python
-   # TESTING MODIFICATION: Limit downloads to 5 files for local testing
-   # TO REVERT: Remove the [:5] slice below to download all files
-   limited_pdf_links = all_pdf_links[:5]
+   # TESTING MODIFICATION: Limit downloads to 20 files for local testing
+   # TO REVERT: Remove the [:20] slice below to download all files
+   limited_pdf_links = all_pdf_links[:20]
    progress_callback(f"TESTING MODE: Limited to {len(limited_pdf_links)} files (out of {len(all_pdf_links)} found)", 50)
    ```
 
@@ -42,9 +42,9 @@ To restore full download functionality:
 1. **Remove the testing limitation** (Lines 176-179):
    ```python
    # Delete these lines:
-   # TESTING MODIFICATION: Limit downloads to 5 files for local testing
-   # TO REVERT: Remove the [:5] slice below to download all files
-   limited_pdf_links = all_pdf_links[:5]
+   # TESTING MODIFICATION: Limit downloads to 20 files for local testing
+   # TO REVERT: Remove the [:20] slice below to download all files
+   limited_pdf_links = all_pdf_links[:20]
    progress_callback(f"TESTING MODE: Limited to {len(limited_pdf_links)} files (out of {len(all_pdf_links)} found)", 50)
    ```
 
@@ -76,4 +76,4 @@ To restore full download functionality:
 
 ## Summary
 
-These changes limit the download process to only the first 5 PDF files found during discovery, making local testing faster and more manageable. All other functionality remains unchanged.
+These changes limit the download process to only the first 20 PDF files found during discovery, making local testing faster and more manageable. All other functionality remains unchanged.
